@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "q8020-cfd-qutil"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "qiskit>=2.0,<3.0",
+    "qiskit_aer",
+    "qiskit_ibm_runtime",
+    "numpy",
+    "q8020_cfd_metautil @ git+https://github.com/Q8020-CFD/q8020-cfd-metautil",
+]
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pylint.messages_control]
+disable = [
+    "C0103",  # invalid-name
+    "C0305",  # trailing-newlines
+    "C0303",  # trailing-whitespace
+    "C0301",  # line-too-long
+    "W0621",  # redefined-outer-name
+]
