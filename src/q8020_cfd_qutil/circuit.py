@@ -90,12 +90,13 @@ def execute_circuit_counts(
         result = backend.run(qc_transpiled, shots=shots).result()
         execute_time = time.time() - execute_start
 
+        status = result.results[0].status
         exec_info = {
             "wall_time": execute_time,
             "backend_time": result.results[0].time_taken,
             "shots_requested": shots,
             "shots_executed": result.results[0].shots,
-            "status": result.results[0].status.name,
+            "status": status.name if hasattr(status, 'name') else str(status),
         }
         counts = result.get_counts()
     else:
