@@ -12,9 +12,7 @@ dependencies = [
     "qiskit_aer",
     "qiskit_ibm_runtime",
     "numpy",
-    "q8020_cfd_metautil @ git+https://github.com/Q8020-CFD/q8020-cfd-metautil",
 ]
-
 
 [tool.setuptools.packages.find]
 where = ["src"]
