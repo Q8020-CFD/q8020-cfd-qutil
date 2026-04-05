@@ -1,0 +1,48 @@
+# IBM Quantum Bell-state job sweep
+#
+# Local:
+#   q8020-sweep input/test_job.toml --group submit
+#   q8020-sweep input/test_job.toml --group getresult
+#
+# Frontier:
+#   q8020-sweep input/test_job.toml --group submit \
+#     --set _slurm=true \
+#     --set _output_dir=/lustre/orion/ard189/q8020
+
+[global]
+_output_dir = "~/q8020"
+
+# --- Paths (override with --set for different layouts) ---
+_qutil_dir = "./q8020-cfd-qutil"
+_qutil_venv = "./.venv"
+
+# --- SLURM (off by default; enable with --set _slurm=true) ---
+_slurm = false
+_run_mode = "sequential"
+_slurm_project = "ard189"
+_slurm_partition = "batch"
+_slurm_walltime = "02:00:00"
+_slurm_exclusive_node = true
+_slurm_pack_venvs = ["${_qutil_venv}"]
+
+# --- Script command ---
+_script = """\
+source ${_qutil_venv}/bin/activate && \
+python3 ${_qutil_dir}/src/q8020_cfd_qutil/test_job_cli.py\
+"""
+
+# --- Submit ---
+
+[submit]
+_inject_outdir = "--outdir"
+"--action" = "submit"
+"--backend" = "ibm_marrakesh"
+"--shots" = 1024
+
+# --- Get results: pass job ID via --set ---
+#   q8020-sweep input/test_job.toml getresult --set job-id=<JOB_ID>
+
+[getresult]
+_inject_outdir = "--outdir"
+"--action" = "getresult"
+"--job-id" = "none"

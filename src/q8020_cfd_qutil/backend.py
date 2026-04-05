@@ -58,7 +58,7 @@ def _build_thermal_noise(t1: float, t2: float) -> NoiseModel:
 
 def get_service(
     token: str | None = None,
-    channel: str = "ibm_quantum",
+    channel: str = "ibm_cloud",
     instance: str | None = None,
 ) -> QiskitRuntimeService:
     """
@@ -111,7 +111,7 @@ def get_backend(
     t2: float | None = None,
     coupling_map: str = "default",
     token: str | None = None,
-    channel: str = "ibm_quantum",
+    channel: str = "ibm_cloud",
     instance: str | None = None,
 ) -> Any:
     """

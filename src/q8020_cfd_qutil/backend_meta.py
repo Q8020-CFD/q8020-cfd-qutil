@@ -87,7 +87,7 @@ def lookup(
     backend_type: str = "sim",
     name: str | None = None,
     token: str | None = None,
-    channel: str = "ibm_quantum",
+    channel: str = "ibm_cloud",
     instance: str | None = None,
 ) -> dict[str, Any]:
     """Instantiate a backend and return its metadata dict.
@@ -181,8 +181,8 @@ Available backend names (IBM legacy emulations):
     parser.add_argument(
         "--channel",
         type=str,
-        default="ibm_quantum",
-        help="IBM channel (default: ibm_quantum)",
+        default="ibm_cloud",
+        help="IBM channel (default: ibm_cloud)",
     )
     parser.add_argument(
         "--instance",
