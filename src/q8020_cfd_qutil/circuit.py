@@ -33,7 +33,8 @@ def get_circuit_info(qc: QuantumCircuit) -> dict:
 def transpile_circuit(
     qc: QuantumCircuit,
     backend: Any,
-    optimization_level: int = 1
+    optimization_level: int = 1,
+    seed_transpiler: int | None = None,
 ) -> tuple[QuantumCircuit, dict]:
     """
     Transpile a circuit for a backend.
@@ -42,12 +43,16 @@ def transpile_circuit(
         qc: The quantum circuit to transpile.
         backend: Backend object (AerSimulator, FakeBackendV2, or IBMBackend).
         optimization_level: Transpilation optimization level (0-3).
+        seed_transpiler: Seed for reproducible layout/routing (default: None).
     
     Returns:
         Tuple of (transpiled_circuit, transpile_info_dict).
     """
     transpile_start = time.time()
-    qc_transpiled = transpile(qc, backend=backend, optimization_level=optimization_level)
+    kwargs = {"backend": backend, "optimization_level": optimization_level}
+    if seed_transpiler is not None:
+        kwargs["seed_transpiler"] = seed_transpiler
+    qc_transpiled = transpile(qc, **kwargs)
     transpile_time = time.time() - transpile_start
     
     transpile_info = {
@@ -63,73 +68,55 @@ def transpile_circuit(
 def execute_circuit_counts(
     qc_transpiled: QuantumCircuit,
     backend: Any,
-    shots: int = 1024
+    shots: int = 1024,
+    seed: int | None = None,
 ) -> tuple[dict[str, int], dict]:
+    """Execute a transpiled circuit and return joint counts.
+
+    Returns (counts, exec_info).  ``counts`` keys are single bitstrings
+    with **no spaces**, regardless of how many classical registers the
+    circuit has.  For multi-register circuits Aer normally space-joins
+    the registers; this function strips the space so all callers see a
+    uniform contract.  Single-creg circuits are unaffected (no space to
+    strip).
+
+    Bitstring layout for multi-creg: most-recently-added register on the
+    LEFT, matching Aer convention.  V2 Sampler's ``join_data()`` produces
+    the same layout natively.
     """
-    Execute a transpiled circuit on a backend.
-    
-    Args:
-        qc_transpiled: The transpiled quantum circuit to execute.
-        backend: Backend object (AerSimulator, FakeBackendV2, or IBMBackend).
-        shots: Number of shots.
-    
-    Returns:
-        Tuple of (counts_dict, execution_info_dict).
-    """
-    # Detect backend type: AerSimulator uses backend.run(), others use SamplerV2
     try:
         from qiskit_aer import AerSimulator
         is_aer = isinstance(backend, AerSimulator)
     except ImportError:
         is_aer = False
 
-    execute_start = time.time()
+    t0 = time.time()
 
     if is_aer:
-        # Aer path: use backend.run() API
-        result = backend.run(qc_transpiled, shots=shots).result()
-        execute_time = time.time() - execute_start
-
-        status = result.results[0].status
+        kwargs = {"shots": shots}
+        if seed is not None:
+            kwargs["seed_simulator"] = seed
+        result = backend.run(qc_transpiled, **kwargs).result()
+        raw = result.get_counts()
+        counts = {k.replace(" ", ""): v for k, v in raw.items()}
         exec_info = {
-            "wall_time": execute_time,
-            "backend_time": result.results[0].time_taken,
+            "wall_time": time.time() - t0,
             "shots_requested": shots,
             "shots_executed": result.results[0].shots,
-            "status": status.name if hasattr(status, 'name') else str(status),
+            "backend_time": result.results[0].time_taken,
         }
-        counts = result.get_counts()
     else:
-        # V2 Sampler path: for IBMBackend, FakeBackendV2, etc.
         from qiskit_ibm_runtime import SamplerV2 as Sampler
-
         sampler = Sampler(backend)
+        if seed is not None:
+            sampler.options.simulator.seed_simulator = seed
         job = sampler.run([qc_transpiled], shots=shots)
-        result = job.result()
-        execute_time = time.time() - execute_start
-
-        pub_result = result[0]
-
-        # Get counts from the first available classical register
-        if hasattr(pub_result.data, "meas"):
-            counts = pub_result.data.meas.get_counts()
-        else:
-            # Find first BitArray in data
-            counts = None
-            for attr_name in dir(pub_result.data):
-                if attr_name.startswith("_"):
-                    continue
-                attr = getattr(pub_result.data, attr_name)
-                if hasattr(attr, "get_counts"):
-                    counts = attr.get_counts()
-                    break
-            if counts is None:
-                raise RuntimeError("No countable register found in result")
-
+        pub_result = job.result()[0]
+        counts = pub_result.join_data().get_counts()
         exec_info = {
-            "wall_time": execute_time,
-            "job_id": job.job_id(),
+            "wall_time": time.time() - t0,
             "shots_requested": shots,
+            "job_id": job.job_id(),
         }
 
     return counts, exec_info

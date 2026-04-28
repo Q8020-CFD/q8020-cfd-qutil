@@ -132,20 +132,15 @@ def get_job_result(
 def _extract_counts(
     primitive_result: Any,
 ) -> list[dict[str, Any]]:
-    """
-    Pull shot counts out of a SamplerV2 PrimitiveResult.
+    """Pull shot counts out of a SamplerV2 PrimitiveResult.
 
     Each element of the returned list corresponds to one circuit pub and
-    contains a 'counts' dict mapping register name → {bitstring: count}.
+    contains a 'counts' dict with joint bitstrings (no spaces) across all
+    classical registers.  Uses ``join_data().get_counts()`` so multi-creg
+    circuits preserve per-shot correlation.
     """
     out: list[dict[str, Any]] = []
     for pub_result in primitive_result:
-        counts_by_reg: dict[str, dict[str, int]] = {}
-        for attr_name in dir(pub_result.data):
-            if attr_name.startswith("_"):
-                continue
-            attr = getattr(pub_result.data, attr_name)
-            if hasattr(attr, "get_counts"):
-                counts_by_reg[attr_name] = attr.get_counts()
-        out.append({"counts": counts_by_reg})
+        counts = pub_result.join_data().get_counts()
+        out.append({"counts": counts})
     return out
