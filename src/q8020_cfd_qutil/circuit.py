@@ -30,6 +30,31 @@ def get_circuit_info(qc: QuantumCircuit) -> dict:
     }
 
 
+def circuit_stats_in_basis(
+    qc: QuantumCircuit,
+    basis_gates: list[str],
+    optimization_level: int = 1,
+    seed_transpiler: int | None = None,
+) -> dict:
+    """Logical depth/gate counts after decomposing to a fixed gate basis.
+
+    Transpiles all-to-all (no backend/coupling map, so no routing swaps)
+    purely to measure how the circuit lowers onto ``basis_gates`` -- e.g.
+    forcing a dense ``UnitaryGate`` to decompose into cx + 1-qubit gates.
+    Use for hardware-cost reporting; it does not affect execution.
+
+    Returns the same dict as ``get_circuit_info`` (depth, num_qubits,
+    gate_counts), measured on the basis-decomposed circuit.
+    """
+    kwargs = {
+        "basis_gates": basis_gates,
+        "optimization_level": optimization_level,
+    }
+    if seed_transpiler is not None:
+        kwargs["seed_transpiler"] = seed_transpiler
+    return get_circuit_info(transpile(qc, **kwargs))
+
+
 def transpile_circuit(
     qc: QuantumCircuit,
     backend: Any,
