@@ -55,6 +55,126 @@ def circuit_stats_in_basis(
     return get_circuit_info(transpile(qc, **kwargs))
 
 
+# Default basis for hardware-cost reporting: canonical IBM
+# superconducting set (cx is the dominant-cost metric, comparable
+# across methods).
+DEFAULT_METRIC_BASIS = ["cx", "rz", "sx", "x"]
+
+
+def _stats_worker(conn, qc, basis_gates, strategy, opt_level, seed, reps):
+    """Child-process body: decompose qc and ship back circuit stats.
+
+    Wrapped so any *catchable* error returns a reason; an *uncatchable*
+    crash (segfault) just kills this child -- the parent detects the
+    non-zero exit code.
+    """
+    try:
+        if strategy == "transpile":
+            kwargs = {
+                "basis_gates": basis_gates,
+                "optimization_level": opt_level,
+            }
+            if seed is not None:
+                kwargs["seed_transpiler"] = seed
+            out = transpile(qc, **kwargs)
+        else:  # progressive gate-definition expansion (no unitary synth)
+            out = qc
+            for _ in range(reps):
+                out = out.decompose()
+        info = get_circuit_info(out)
+        info["available"] = True
+        info["method"] = strategy
+        conn.send(info)
+    except BaseException as exc:  # noqa: BLE001 - report, never raise
+        conn.send({
+            "available": False,
+            "reason": f"{strategy}: {type(exc).__name__}: {exc}",
+        })
+    finally:
+        conn.close()
+
+
+def safe_circuit_stats_in_basis(
+    qc: QuantumCircuit,
+    basis_gates: list[str],
+    optimization_level: int = 1,
+    seed_transpiler: int | None = None,
+    timeout: float = 180.0,
+    try_decompose: bool = True,
+) -> dict:
+    """Subprocess-isolated basis-decomposition stats.
+
+    Runs the basis transpile in a child process so a transpiler crash
+    (e.g. the qs_decomposition segfault on LCU multi-controlled SELECT
+    gates) or a hang can never take down the caller -- the simulation
+    keeps running and just records that metrics were unavailable here.
+
+    Tries a full ``transpile`` first; if that child crashes/times out and
+    ``try_decompose`` is set, falls back to progressive ``.decompose()``
+    (gate-definition expansion, which avoids unitary synthesis) in a
+    fresh child.  Each attempt is fully isolated.
+
+    Returns ``{available: True, depth, num_qubits, gate_counts, method}``
+    on success, else ``{available: False, reason}``.
+    """
+    import multiprocessing as mp
+
+    strategies = [("transpile", optimization_level, 0)]
+    if try_decompose:
+        strategies.append(("decompose", 0, 8))
+
+    # 'spawn', not 'fork': the caller has live Aer/BLAS threads, and
+    # forking a multithreaded process deadlocks the child.  spawn starts
+    # a clean interpreter (costs a re-import, but it's crash/hang safe).
+    ctx = mp.get_context("spawn")
+    reason = "not attempted"
+    for strat, ol, reps in strategies:
+        parent_conn, child_conn = ctx.Pipe()
+        proc = ctx.Process(
+            target=_stats_worker,
+            args=(child_conn, qc, basis_gates, strat, ol,
+                  seed_transpiler, reps),
+        )
+        proc.start()
+        child_conn.close()
+
+        result = None
+        capped = timeout is not None and timeout > 0
+        deadline = time.time() + timeout if capped else None
+        while True:
+            if parent_conn.poll(0.2):
+                try:
+                    result = parent_conn.recv()
+                except EOFError:
+                    result = None
+                break
+            if not proc.is_alive():
+                break  # crashed without sending (segfault)
+            if capped and time.time() >= deadline:
+                break  # exceeded the cap; handled below
+
+        # A received result wins, even if the child hasn't fully exited
+        # yet (it sends, then tears down).  Only treat still-alive +
+        # no-result as a genuine timeout (capped runs only).
+        if result is None and proc.is_alive():
+            proc.terminate()
+            proc.join(5)
+            parent_conn.close()
+            reason = f"{strat}: timeout>{timeout:.0f}s"
+            continue
+
+        proc.join(5)
+        parent_conn.close()
+        if result is None:
+            reason = f"{strat}: crashed (exitcode={proc.exitcode})"
+            continue
+        if result.get("available"):
+            return result
+        reason = result.get("reason", f"{strat}: unknown")
+
+    return {"available": False, "reason": reason}
+
+
 def transpile_circuit(
     qc: QuantumCircuit,
     backend: Any,
